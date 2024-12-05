@@ -1,0 +1,118 @@
+pipeline {
+    agent any
+    
+    environment {
+        SONARCLOUD_URL = 'https://sonarcloud.io' // URL de SonarCloud
+        SONARCLOUD_PROJECT_KEY = '.....' // Clé unique de votre projet
+        SONARCLOUD_ORGANIZATION = '......' // Nom de votre organisation SonarCloud
+        SONARCLOUD_TOKEN = '.........' // Token généré dans votre profil SonarCloud
+        
+        registryCredential = 'dockerhublogin'
+        dockerimagename = "......."
+        dockerImage = ""
+        
+    }
+    
+    stages {
+        stage('Clone Repository') {
+            steps {
+                git branch: 'main', 
+                    url: '.........',
+                    credentialsId: 'Github_Token'
+            }
+        }
+        stage('Compile') {
+            steps {
+                dir('Discovery-Service') { 
+                    bat 'mvn clean compile'
+                }
+            }
+        }
+        
+           stage('Test Unitaire') {
+            steps {
+                dir('Discovery-Service') { 
+                    bat 'mvn test'
+                }
+            }
+        }
+        
+        
+         stage('Code Quality') {
+            steps {
+                dir('Discovery-Service') { 
+                    withEnv(["SONAR_TOKEN=${SONARCLOUD_TOKEN}"]) {
+                    bat """
+                    mvn sonar:sonar \
+                        -Dsonar.projectKey=${SONARCLOUD_PROJECT_KEY} \
+                        -Dsonar.organization=${SONARCLOUD_ORGANIZATION} \
+                        -Dsonar.host.url=${SONARCLOUD_URL} \
+                        -Dsonar.login=${SONARCLOUD_TOKEN}
+                    """
+                }
+                }
+            }
+        }
+        
+        
+           stage('Package Jar') {
+            steps {
+                dir('Discovery-Service') { 
+                    bat 'mvn clean package -DskipTests'
+                }
+            }
+        }
+        /*
+        stage('Build image') {
+          steps{
+            dir('Discovery-Service') {  
+            script {
+              dockerImage = docker.build dockerimagename
+            }
+          }
+         }
+        }
+        
+         stage('Pushing Image') {
+          steps{
+            dir('Discovery-Service') {    
+            script {
+              docker.withRegistry( 'https://registry.hub.docker.com', registryCredential ) {
+                dockerImage.push("latest")
+              }
+            }
+            }
+          }
+        }
+        */
+        
+        stage('Deploying App to Kubernetes') {
+          steps {
+            dir('Discovery-Service') {  
+            script {
+              kubernetesDeploy(configs: "discovery-deploy.yaml", kubeconfigId: "kubernetes")
+            }
+          }
+          }
+        }
+        
+        
+    }
+
+	post {
+        always {
+            echo "Build complete. Sending notification..."
+        }
+        success {
+            mail to: '......',
+                 subject: "Discovery-Service Build #${env.BUILD_NUMBER} Success",
+                 body: "The build succeeded!"
+        }
+        failure {	
+            mail to: '.......',
+                 subject: "Build #${env.BUILD_NUMBER} Failed",
+                 body: "The build failed. Please check Jenkins logs."
+        }
+    }
+    
+}
